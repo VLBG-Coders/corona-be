@@ -23,10 +23,12 @@ flask run
 
 `/import_csv`
 
-get data from github
+import data from github
 
-`/cases?country=austria`
+`/cases-by-country?country=austria`
 
 get numbers for a country
 
+`/countries`
 
+list of countries

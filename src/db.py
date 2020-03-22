@@ -13,8 +13,6 @@ def get_db():
             detect_types=sqlite3.PARSE_DECLTYPES
         )
         g.db.row_factory = sqlite3.Row
-        print("connected")
-    print(current_app.config['DATABASE'])
 
     return g.db
 
@@ -39,30 +37,3 @@ def init_db_command():
     """Clear the existing data and create new tables."""
     init_db()
     click.echo('Initialized the database.')
-
-# def get_db():
-#     db = getattr(g, '_database', None)
-#     if db is None:
-#         db = g._database = sqlite3.connect(DATABASE)
-#     return db
-
-# def close_connection(exception):
-#     db = getattr(g, '_database', None)
-#     if db is not None:
-#         db.close()
-
-
-# def create_table():
-#     print("creating table")
-
-#     get_db().execute("""
-#         CREATE TABLE IF NOT EXIST cases_time(
-#         country_region TEXT,
-#         last_update DATETIME,
-#         confirmed INTEGER,
-#         deaths INTEGER,
-#         recovered INTEGER,
-#         active INTEGER,
-#         delta_confirmed INTEGER,
-#         delta_recovered INTEGER
-#     """)
