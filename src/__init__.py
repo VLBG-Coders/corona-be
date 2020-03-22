@@ -91,7 +91,7 @@ def create_app(test_config=None):
             return "please provide a country", 400
 
         cursor = db.get_db().cursor()
-        query = f"SELECT * FROM cases_time WHERE LOWER(country_region) = '{country.lower()}'"
+        query = f"SELECT * FROM cases_time WHERE LOWER(country_region) = '{country.lower()}' ORDER BY last_update ASC"
         cursor.execute(query)
 
         result = []
