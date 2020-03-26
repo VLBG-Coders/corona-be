@@ -10,13 +10,13 @@ venv/bin/pip install -r requirements.txt
 
 export FLASK_APP=src
 export FLASK_ENV=development
-flask init-db
+venv/bin/flask init-db
 
 ## Start flask app
 
 export FLASK_APP=src
 export FLASK_ENV=development
-flask run
+venv/bin/flask run
 
 
 ## Endpoints
@@ -28,6 +28,14 @@ import data from github
 `/cases-by-country?country=austria`
 
 get numbers for a country
+
+`/cases-by-countries`
+
+Get current number for each country and their delta
+
+`/cases-total-days`
+
+Total numbers per days
 
 `/countries`
 
