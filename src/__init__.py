@@ -7,7 +7,7 @@ import requests
 from . import db
 
 
-from flask import Flask, g, request
+from flask import Flask, g, request, jsonify
 
 CSV_BASE_URL="https://raw.githubusercontent.com/CSSEGISandData/COVID-19/web-data/data/"
 INSERT_BATCH = 100
@@ -107,7 +107,7 @@ def create_app(test_config=None):
         data = download_csv("cases_country.csv")
         read_and_import_csv(data, "cases_country")
 
-        return "True", 200
+        return jsonify("True")
 
     @app.route('/countries')
     def countries():
@@ -119,7 +119,7 @@ def create_app(test_config=None):
         for row in cursor.fetchall():
             result.append(row[0])
 
-        return json.dumps(result)
+        return jsonify(result)
 
     @app.route('/cases-by-country')
     def cases_by_country():
@@ -157,7 +157,7 @@ def create_app(test_config=None):
                 "recovered": recovered,
             })
 
-        return json.dumps(result)
+        return jsonify(result)
 
     @app.route('/cases-by-countries')
     def cases_by_countries():
@@ -202,7 +202,7 @@ def create_app(test_config=None):
                 "date": last_update
             })
 
-        return json.dumps(result)
+        return jsonify(result)
 
     @app.route('/cases-total-days')
     def cases_total_days():
@@ -228,6 +228,6 @@ def create_app(test_config=None):
                 "date": last_update
             })
 
-        return json.dumps(result)
+        return jsonify(result)
 
     return app
