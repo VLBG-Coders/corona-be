@@ -9,13 +9,17 @@ venv/bin/pip install -r requirements.txt
 ## (optional) Initialize the db 
 
 export FLASK_APP=src
+
 export FLASK_ENV=development
+
 venv/bin/flask init-db
 
 ## Start flask app
 
 export FLASK_APP=src
+
 export FLASK_ENV=development
+
 venv/bin/flask run
 
 
