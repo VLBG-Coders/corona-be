@@ -72,7 +72,7 @@ def create_app(test_config=None):
                 if re_result:
                     month, day, year = re_result.groups()
                     # attention: this will only work for 80 years! ;)
-                    row[last_update_index] = f"20{year}-{int(month):02}-{int(day):02}" 
+                    row[last_update_index] = f"20{year}-{int(month):02}-{int(day):02}"
 
             insert_data.append(tuple(row))
             if count % INSERT_BATCH == 0:
@@ -102,8 +102,24 @@ def create_app(test_config=None):
     def import_countries():
         json_data = download_country_json("country-by-abbreviation.json")
         countries = json.loads(json_data)
+
         json_data = download_country_json("country-by-population.json")
         population_list = (json.loads(json_data))
+
+        json_data = download_country_json("country-by-life-expectancy.json")
+        life_expectancy = (json.loads(json_data))
+
+        json_data = download_country_json("country-by-continent.json")
+        continents = (json.loads(json_data))
+
+        json_data = download_country_json("country-by-capital-city.json")
+        capital_cities = (json.loads(json_data))
+
+        json_data = download_country_json("country-by-population-density.json")
+        population_desity = (json.loads(json_data))
+
+        json_data = download_country_json("country-by-yearly-average-temperature.json")
+        avg_temperature = (json.loads(json_data))
 
         query = f"DELETE FROM countries"
         db.get_db().execute(query)
@@ -111,12 +127,34 @@ def create_app(test_config=None):
         data = []
         result = []
         count = 0
+        dbPropertyMapping = [
+            "code",
+            "name",
+            "population",
+            "life_expectancy",
+            "continent",
+            "capital",
+            "population_density",
+            "avg_temperature"
+        ]
+
         for country in countries:
             population_obj = next((x for x in population_list if x.get("name") == country.get("name")), None)
+            life_expectancy_obj = next((x for x in life_expectancy if x.get("name") == country.get("name")), None)
+            continents_obj = next((x for x in continents if x.get("name") == country.get("name")), None)
+            capital_cities_obj = next((x for x in capital_cities if x.get("name") == country.get("name")), None)
+            population_desity_obj = next((x for x in population_desity if x.get("name") == country.get("name")), None)
+            avg_temperature_obj = next((x for x in avg_temperature if x.get("name") == country.get("name")), None)
+
             obj = (
                 country.get("abbreviation"),
                 country.get("country"),
                 population_obj.get("population"),
+                life_expectancy_obj.get("expectancy"),
+                continents_obj.get("continent"),
+                capital_cities_obj.get("city"),
+                population_desity_obj.get("density"),
+                avg_temperature_obj.get("temperature")
             )
 
             data.append(obj)
@@ -124,16 +162,12 @@ def create_app(test_config=None):
 
             count += 1
             if count % INSERT_BATCH == 0:
-                do_bulk_insert("countries", data, ["code", "name", "population"])
+                do_bulk_insert("countries", data, dbPropertyMapping)
                 data = []
 
-        do_bulk_insert("countries", data, ["code", "name", "population"])
+        do_bulk_insert("countries", data, dbPropertyMapping)
 
         return jsonify(True)
-
-
-
-
 
     # testing only
     @app.route('/import_test')
@@ -154,31 +188,77 @@ def create_app(test_config=None):
 
     @app.route('/countries')
     def countries():
+        country = request.args.get("country")
+        query = f"""
+        SELECT code, name, population, life_expectancy, continent, capital, population_density, avg_temperature
+        FROM countries
+        ORDER BY name ASC
+        """
+
+        if country:
+            query = f"""
+            SELECT code, name, population, life_expectancy, continent, capital, population_density, avg_temperature
+            FROM countries
+            WHERE LOWER(name) = '{country.lower()}'
+            ORDER BY name ASC
+            """
+
         cursor = db.get_db().cursor()
-        query = f"SELECT DISTINCT country_region FROM cases_country  ORDER BY country_region ASC"
         cursor.execute(query)
 
         result = []
         for row in cursor.fetchall():
-            result.append(row[0])
+            code, name, population, life_expectancy, continent, capital, population_density, avg_temperature = row
+            result.append({
+                "code": code,
+                "name": name,
+                "population": population,
+                "life_expectancy": life_expectancy,
+                "continent": continent,
+                "capital": capital,
+                "population_density": population_density,
+                "avg_temperature": avg_temperature
+            })
 
         return jsonify(result)
 
     @app.route('/cases-by-country')
     def cases_by_country():
         country = request.args.get("country")
-        
+
         if not country:
             return "please provide a country", 400
 
         cursor = db.get_db().cursor()
-        query = f"""
+        queryCases = f"""
         SELECT country_region, confirmed, deaths, recovered, last_update
         FROM cases_time
         WHERE LOWER(country_region) = '{country.lower()}'
         ORDER BY last_update ASC
         """
-        cursor.execute(query)
+        cursor.execute(queryCases)
+
+        cursor1 = db.get_db().cursor()
+        queryCountry = f"""
+        SELECT code, name, population, life_expectancy, continent, capital, population_density, avg_temperature
+        FROM countries
+        WHERE LOWER(name) = '{country.lower()}'
+        """
+        cursor1.execute(queryCountry)
+
+        countries = []
+        for row in cursor1.fetchall():
+            code, name, population, life_expectancy, continent, capital, population_density, avg_temperature = row
+            countries.append({
+                "code": code,
+                "name": name,
+                "population": population,
+                "life_expectancy": life_expectancy,
+                "continent": continent,
+                "capital": capital,
+                "population_density": population_density,
+                "avg_temperature": avg_temperature
+            })
 
         result = {}
         count = 0
@@ -187,13 +267,11 @@ def create_app(test_config=None):
             count += 1
             if count == 1:
                 result = {
-                    "country": {
-                        "name": country_region
-                    },
-                    "data": []
+                    "country": countries[0],
+                    "timeline": []
                 }
 
-            result.get("data").append({
+            result.get("timeline").append({
                 "date": last_update,
                 "confirmed": confirmed,
                 "deaths": deaths,
@@ -202,60 +280,95 @@ def create_app(test_config=None):
 
         return jsonify(result)
 
-    @app.route('/cases-by-countries')
+    @app.route('/cases-total')
     def cases_by_countries():
         cursor = db.get_db().cursor()
+        # query = f"""
+        # SELECT cc.country_region, cc.confirmed, cc.deaths, cc.recovered, ct.last_update, ct.delta_confirmed, ct.delta_recovered
+        # FROM cases_country cc
+        # JOIN cases_time ct ON cc.country_region = ct.country_region
+        # LEFT OUTER JOIN cases_time ct2 ON ct2.country_region = ct.country_region and (ct2.last_update > ct.last_update
+        # OR (ct.country_region <> ct2.country_region  and ct2.last_update = ct.last_update))
+        # WHERE ct2.country_region is ct.country_region
+        # ORDER BY country_region ASC
+        # """
+        ## this is slow and needs to be improved
         query = f"""
-        SELECT cc.country_region, cc.confirmed, cc.deaths, cc.recovered, ct.last_update, ct.delta_confirmed, ct.delta_recovered
+        SELECT cc.country_region,
+        cc.confirmed,
+        cc.deaths,
+        cc.recovered,
+        ct.last_update,
+        ct.delta_confirmed,
+        ct.delta_recovered,
+        c.code,
+        c.name,
+        c.population,
+        c.life_expectancy,
+        c.continent,
+        c.capital,
+        c.population_density,
+        c.avg_temperature
         FROM cases_country cc
         JOIN cases_time ct ON cc.country_region = ct.country_region
-        LEFT OUTER JOIN cases_time ct2 ON ct2.country_region = ct.country_region and (ct2.last_update > ct.last_update
-         OR (ct.country_region <> ct2.country_region  and ct2.last_update = ct.last_update))
-        WHERE ct2.country_region is null
-        ORDER BY country_region ASC
+        JOIN countries c ON cc.country_region = c.name
+        WHERE ct.last_update IN (
+            SELECT ct2.last_update
+            FROM cases_time ct2
+            WHERE ct2.country_region = ct.country_region
+            ORDER BY ct2.last_update DESC
+            LIMIT 1
+        )
         """
-        ## this is slow and needs to be improved
-        #query = f"""
-        #SELECT cc.country_region, cc.confirmed, cc.deaths, cc.recovered, ct.last_update, ct.delta_confirmed, ct.delta_recovered
-        #FROM cases_country cc
-        #JOIN cases_time ct ON cc.country_region = ct.country_region
-        #WHERE ct.last_update IN (
-        #    SELECT ct2.last_update
-        #    FROM cases_time ct2
-        #    WHERE ct2.country_region = ct.country_region
-        #    ORDER BY ct2.last_update DESC
-        #    LIMIT 1
-        #)
-        #"""
         cursor.execute(query)
 
         result = []
-        count = 0
         for row in cursor.fetchall():
-            country_region, confirmed, deaths, recovered, last_update, delta_confirmed, delta_recovered = row
-            count += 1
+            country_region, confirmed, deaths, recovered, last_update, delta_confirmed, delta_recovered, code, name, population, life_expectancy, continent, capital, population_density, avg_temperature = row
 
             result.append({
-                "name": country_region,
-                "confirmed": confirmed,
-                "deaths": deaths,
-                "recovered": recovered,
-                "delta_confirmed": delta_confirmed,
-                "delta_recovered": delta_recovered,
-                "date": last_update
+                "country": {
+                    "code": code,
+                    "name": name,
+                    "population": population,
+                    "life_expectancy": life_expectancy,
+                    "continent": continent,
+                    "capital": capital,
+                    "population_density": population_density,
+                    "avg_temperature": avg_temperature
+                },
+                "cases": {
+                    "confirmed": confirmed,
+                    "deaths": deaths,
+                    "recovered": recovered,
+                    "delta_confirmed": delta_confirmed,
+                    "delta_recovered": delta_recovered,
+                    "date": last_update
+                }
             })
 
         return jsonify(result)
 
-    @app.route('/cases-total-days')
+    @app.route('/cases-timeline')
     def cases_total_days():
-        cursor = db.get_db().cursor()
+        country = request.args.get("country")
         query = f"""
         SELECT SUM(confirmed) as confirmed, SUM(deaths) as deaths, SUM(recovered) as recovered, last_update
         FROM cases_time
         GROUP BY last_update
         ORDER BY last_update DESC
         """
+
+        if country:
+            query = f"""
+            SELECT SUM(confirmed) as confirmed, SUM(deaths) as deaths, SUM(recovered) as recovered, last_update
+            FROM cases_time
+            WHERE LOWER(country_region) = '{country.lower()}'
+            GROUP BY last_update
+            ORDER BY last_update DESC
+            """
+
+        cursor = db.get_db().cursor()
         cursor.execute(query)
 
         result = []

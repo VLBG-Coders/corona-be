@@ -29,5 +29,10 @@ CREATE TABLE IF NOT EXISTS countries (
     id INTEGER,
     code TEXT,
     name TEXT,
-    population INTEGER
+    population INTEGER,
+    life_expectancy REAL,
+    continent TEXT,
+    capital TEXT,
+    population_density REAL,
+    avg_temperature REAL
 );
