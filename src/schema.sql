@@ -23,3 +23,11 @@ CREATE TABLE IF NOT EXISTS cases_country (
     recovered INTEGER,
     active INTEGER
 );
+
+DROP TABLE IF EXISTS countries;
+CREATE TABLE IF NOT EXISTS countries (
+    id INTEGER,
+    code TEXT,
+    name TEXT,
+    population INTEGER
+);

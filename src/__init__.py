@@ -10,9 +10,8 @@ from . import db
 from flask import Flask, g, request, jsonify
 
 CSV_BASE_URL="https://raw.githubusercontent.com/CSSEGISandData/COVID-19/web-data/data/"
+COUNTRY_JSON_BASE_URL="https://raw.githubusercontent.com/samayo/country-json/master/src/"
 INSERT_BATCH = 100
-
-
 
 def create_app(test_config=None):
     # create and configure the app
@@ -91,6 +90,50 @@ def create_app(test_config=None):
         download = requests.get(CSV_BASE_URL + name)
         decoded_content = download.content.decode('utf-8')
         return decoded_content.split("\n")
+
+
+    def download_country_json(name):
+        download = requests.get(COUNTRY_JSON_BASE_URL + name)
+        decoded_content = download.content.decode('utf-8')
+        return decoded_content
+
+
+    @app.route('/import_countries')
+    def import_countries():
+        json_data = download_country_json("country-by-abbreviation.json")
+        countries = json.loads(json_data)
+        json_data = download_country_json("country-by-population.json")
+        population_list = (json.loads(json_data))
+
+        query = f"DELETE FROM countries"
+        db.get_db().execute(query)
+
+        data = []
+        result = []
+        count = 0
+        for country in countries:
+            population_obj = next((x for x in population_list if x.get("name") == country.get("name")), None)
+            obj = (
+                country.get("abbreviation"),
+                country.get("country"),
+                population_obj.get("population"),
+            )
+
+            data.append(obj)
+            result.append(obj)
+
+            count += 1
+            if count % INSERT_BATCH == 0:
+                do_bulk_insert("countries", data, ["code", "name", "population"])
+                data = []
+
+        do_bulk_insert("countries", data, ["code", "name", "population"])
+
+        return jsonify(True)
+
+
+
+
 
     # testing only
     @app.route('/import_test')
@@ -231,3 +274,5 @@ def create_app(test_config=None):
         return jsonify(result)
 
     return app
+
+app = create_app()
