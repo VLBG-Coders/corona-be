@@ -176,7 +176,7 @@ def create_app(test_config=None):
             data = read_and_import_csv(csvfile, "cases_time")
         return data
 
-    @app.route('/import_csv')
+    @app.route('/import_covid19')
     def import_csv():
         imported = {}
         data = download_csv("cases_time.csv")
