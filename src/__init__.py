@@ -139,17 +139,17 @@ def create_app(test_config=None):
         ]
 
         for country in countries:
-            population_obj = next((x for x in population_list if x.get("name") == country.get("name")), None)
-            life_expectancy_obj = next((x for x in life_expectancy if x.get("name") == country.get("name")), None)
-            continents_obj = next((x for x in continents if x.get("name") == country.get("name")), None)
-            capital_cities_obj = next((x for x in capital_cities if x.get("name") == country.get("name")), None)
-            population_desity_obj = next((x for x in population_desity if x.get("name") == country.get("name")), None)
-            avg_temperature_obj = next((x for x in avg_temperature if x.get("name") == country.get("name")), None)
+            population_obj = next((x for x in population_list if x.get("country") == country.get("country")), {})
+            life_expectancy_obj = next((x for x in life_expectancy if x.get("country") == country.get("country")), {})
+            continents_obj = next((x for x in continents if x.get("country") == country.get("country")), {})
+            capital_cities_obj = next((x for x in capital_cities if x.get("country") == country.get("country")), {})
+            population_desity_obj = next((x for x in population_desity if x.get("country") == country.get("country")), {})
+            avg_temperature_obj = next((x for x in avg_temperature if x.get("country") == country.get("country")), {})
 
             obj = (
                 country.get("abbreviation"),
                 country.get("country"),
-                countrypopulation_obj.get("population"),
+                population_obj.get("population"),
                 life_expectancy_obj.get("expectancy"),
                 continents_obj.get("continent"),
                 capital_cities_obj.get("city"),
