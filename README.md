@@ -1,53 +1,26 @@
-## Install
+# Corona Be
 
-python -m venv venv
+This project is based on [Flask](https://flask.palletsprojects.com/en/1.1.x/).
 
-venv/bin/pip install -r requirements.txt
+## 1. Short project description
 
-. venv/bin/activate
+TBD
 
-## (optional) Initialize the db
+## 2. Documentation
 
-export FLASK_APP=src
+### 2.1 Development
+- [Contribution](documentation/contribution.md)
+- [Installation guide](documentation/installation.md)
+- [Development](documentation/development.md)
+- [Versioning Conventions](documentation/versioning-conventions.md)
 
-export FLASK_ENV=development
+### 2.2 Deployment
+- [Deployment on server](documentation/deployment.md)
 
-venv/bin/flask init-db
+### 2.3 Features
+- [Features](documentation/features.md)
 
-## Start flask app
-
-export FLASK_APP=src
-
-export FLASK_ENV=development
-
-venv/bin/flask run
-
-
-## Endpoints
-
-`/import_csv`
-
-import data from github
-
-`/cases-by-country?country=austria`
-
-get numbers for a country
-
-`/cases-total`
-
-Get current number for each country and their delta
-
-
-`/cases-total?country=austria`
-
-Get current number for a single country and their delta
-
-
-
-`/cases-total-days`
-
-Total numbers per days
-
-`/countries`
-
-list of countries
+### 2.4 Apis
+- [/countries](documentation/apis/countries.md)
+- [/cases-by-country](documentation/apis/cases-by-country.md)
+- [/cases-total](documentation/apis/cases-total.md)
