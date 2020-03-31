@@ -6,7 +6,7 @@ venv/bin/pip install -r requirements.txt
 
 . venv/bin/activate
 
-## (optional) Initialize the db 
+## (optional) Initialize the db
 
 export FLASK_APP=src
 
@@ -33,9 +33,16 @@ import data from github
 
 get numbers for a country
 
-`/cases-by-countries`
+`/cases-total`
 
 Get current number for each country and their delta
+
+
+`/cases-total?country=austria`
+
+Get current number for a single country and their delta
+
+
 
 `/cases-total-days`
 

@@ -149,7 +149,7 @@ def create_app(test_config=None):
             obj = (
                 country.get("abbreviation"),
                 country.get("country"),
-                population_obj.get("population"),
+                countrypopulation_obj.get("population"),
                 life_expectancy_obj.get("expectancy"),
                 continents_obj.get("continent"),
                 capital_cities_obj.get("city"),
@@ -282,6 +282,8 @@ def create_app(test_config=None):
 
     @app.route('/cases-total')
     def cases_by_countries():
+        country = request.args.get("country")
+
         cursor = db.get_db().cursor()
         # query = f"""
         # SELECT cc.country_region, cc.confirmed, cc.deaths, cc.recovered, ct.last_update, ct.delta_confirmed, ct.delta_recovered
@@ -293,6 +295,7 @@ def create_app(test_config=None):
         # ORDER BY country_region ASC
         # """
         ## this is slow and needs to be improved
+
         query = f"""
         SELECT cc.country_region,
         cc.confirmed,
@@ -320,6 +323,36 @@ def create_app(test_config=None):
             LIMIT 1
         )
         """
+
+        if country:
+            query = f"""
+            SELECT cc.country_region,
+            cc.confirmed,
+            cc.deaths,
+            cc.recovered,
+            ct.last_update,
+            ct.delta_confirmed,
+            ct.delta_recovered,
+            c.code,
+            c.name,
+            c.population,
+            c.life_expectancy,
+            c.continent,
+            c.capital,
+            c.population_density,
+            c.avg_temperature
+            FROM cases_country cc
+            JOIN cases_time ct ON cc.country_region = ct.country_region
+            JOIN countries c ON cc.country_region = c.name
+            WHERE ct.last_update IN (
+                SELECT ct2.last_update
+                FROM cases_time ct2
+                WHERE ct2.country_region = ct.country_region AND LOWER(c.name) = '{country.lower()}'
+                ORDER BY ct2.last_update DESC
+                LIMIT 1
+                )
+            """
+
         cursor.execute(query)
 
         result = []
