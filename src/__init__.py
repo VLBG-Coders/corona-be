@@ -5,8 +5,7 @@ import json
 import csv
 import requests
 from . import db
-
-
+from flask_cors import CORS, cross_origin
 from flask import Flask, g, request, jsonify
 
 CSV_BASE_URL="https://raw.githubusercontent.com/CSSEGISandData/COVID-19/web-data/data/"
@@ -16,6 +15,8 @@ INSERT_BATCH = 100
 def create_app(test_config=None):
     # create and configure the app
     app = Flask(__name__, instance_relative_config=True)
+    CORS(app)
+
     app.config.from_mapping(
         SECRET_KEY='dev',
         DATABASE=os.path.join(app.instance_path, 'corona.sqlite'),
@@ -38,6 +39,8 @@ def create_app(test_config=None):
     db.init_app(app)
 
     def do_bulk_insert(table_name, data, header):
+        # Replace empty strings with None.
+        data = tuple(x if x else None for x in data)
         placeholder = ["?" for i in range(len(header))]
         query = f'INSERT INTO {table_name} ({",".join(header).lower()}) VALUES ({",".join(placeholder)})'
         db.get_db().executemany(query, data)
@@ -176,7 +179,7 @@ def create_app(test_config=None):
             data = read_and_import_csv(csvfile, "cases_time")
         return data
 
-    @app.route('/import_covid19')
+    @app.route('/covid19/import_data')
     def import_csv():
         imported = {}
         data = download_csv("cases_time.csv")
@@ -188,18 +191,18 @@ def create_app(test_config=None):
 
     @app.route('/countries')
     def countries():
-        country = request.args.get("country")
+        countryFilter = request.args.get("country")
         query = f"""
         SELECT code, name, population, life_expectancy, continent, capital, population_density, avg_temperature
         FROM countries
         ORDER BY name ASC
         """
 
-        if country:
+        if countryFilter:
             query = f"""
             SELECT code, name, population, life_expectancy, continent, capital, population_density, avg_temperature
             FROM countries
-            WHERE LOWER(name) = '{country.lower()}'
+            WHERE LOWER(name) = '{countryFilter.lower()}'
             ORDER BY name ASC
             """
 
@@ -207,9 +210,10 @@ def create_app(test_config=None):
         cursor.execute(query)
 
         result = []
+        country = {}
         for row in cursor.fetchall():
             code, name, population, life_expectancy, continent, capital, population_density, avg_temperature = row
-            result.append({
+            country = {
                 "code": code,
                 "name": name,
                 "population": population,
@@ -218,11 +222,15 @@ def create_app(test_config=None):
                 "capital": capital,
                 "population_density": population_density,
                 "avg_temperature": avg_temperature
-            })
+            }
+            result.append(country)
+
+            if countryFilter:
+                result = country
 
         return jsonify(result)
 
-    @app.route('/cases-by-country')
+    @app.route('/covid19/cases-by-country')
     def cases_by_country():
         country = request.args.get("country")
 
@@ -280,9 +288,10 @@ def create_app(test_config=None):
 
         return jsonify(result)
 
-    @app.route('/cases-total')
+    @app.route('/covid19/cases-total')
     def cases_by_countries():
-        country = request.args.get("country")
+        countryFilter = request.args.get("country")
+        worldwide = request.args.get("worldwide")
 
         cursor = db.get_db().cursor()
         # query = f"""
@@ -314,7 +323,7 @@ def create_app(test_config=None):
         c.avg_temperature
         FROM cases_country cc
         JOIN cases_time ct ON cc.country_region = ct.country_region
-        JOIN countries c ON cc.country_region = c.name
+        JOIN countries c ON cc.country_region = c.name OR cc.country_region = c.code
         WHERE ct.last_update IN (
             SELECT ct2.last_update
             FROM cases_time ct2
@@ -324,7 +333,7 @@ def create_app(test_config=None):
         )
         """
 
-        if country:
+        if countryFilter:
             query = f"""
             SELECT cc.country_region,
             cc.confirmed,
@@ -343,11 +352,31 @@ def create_app(test_config=None):
             c.avg_temperature
             FROM cases_country cc
             JOIN cases_time ct ON cc.country_region = ct.country_region
-            JOIN countries c ON cc.country_region = c.name
+            JOIN countries c ON cc.country_region = c.name OR cc.country_region = c.code
             WHERE ct.last_update IN (
                 SELECT ct2.last_update
                 FROM cases_time ct2
-                WHERE ct2.country_region = ct.country_region AND LOWER(c.name) = '{country.lower()}'
+                WHERE ct2.country_region = ct.country_region AND LOWER(c.name) = '{countryFilter.lower()}'
+                ORDER BY ct2.last_update DESC
+                LIMIT 1
+                )
+            """
+
+        if worldwide:
+            query = f"""
+            SELECT cc.country_region,
+            cc.confirmed,
+            cc.deaths,
+            cc.recovered,
+            ct.last_update,
+            ct.delta_confirmed,
+            ct.delta_recovered
+            FROM cases_country cc
+            JOIN cases_time ct ON cc.country_region = ct.country_region
+            WHERE ct.last_update IN (
+                SELECT ct2.last_update
+                FROM cases_time ct2
+                WHERE ct2.country_region = ct.country_region
                 ORDER BY ct2.last_update DESC
                 LIMIT 1
                 )
@@ -355,34 +384,80 @@ def create_app(test_config=None):
 
         cursor.execute(query)
 
+        if worldwide:
+            result = {}
+            toal_confirmed = 0;
+            toal_deaths = 0;
+            toal_recovered = 0;
+            toal_delta_confirmed = 0;
+            toal_delta_recovered = 0;
+            #TODO
+            toal_delta_deaths = None;
+
+            for row in cursor.fetchall():
+                country_region, confirmed, deaths, recovered, last_update, delta_confirmed, delta_recovered = row
+
+                if worldwide:
+                    toal_confirmed += getIntValue(confirmed);
+                    toal_deaths += getIntValue(deaths);
+                    toal_recovered += getIntValue(recovered);
+                    toal_delta_confirmed += getIntValue(delta_confirmed);
+                    toal_delta_recovered += getIntValue(delta_recovered);
+
+            result = {
+                "confirmed": toal_confirmed,
+                "deaths": toal_deaths,
+                "recovered": toal_recovered,
+                "delta_confirmed": toal_delta_confirmed,
+                "delta_recovered": toal_delta_recovered,
+                "date": last_update
+            }
+
+            return jsonify(result)
+
         result = []
+        country = {}
+        cases = {}
         for row in cursor.fetchall():
             country_region, confirmed, deaths, recovered, last_update, delta_confirmed, delta_recovered, code, name, population, life_expectancy, continent, capital, population_density, avg_temperature = row
 
-            result.append({
-                "country": {
-                    "code": code,
-                    "name": name,
-                    "population": population,
-                    "life_expectancy": life_expectancy,
-                    "continent": continent,
-                    "capital": capital,
-                    "population_density": population_density,
-                    "avg_temperature": avg_temperature
-                },
-                "cases": {
-                    "confirmed": confirmed,
-                    "deaths": deaths,
-                    "recovered": recovered,
-                    "delta_confirmed": delta_confirmed,
-                    "delta_recovered": delta_recovered,
-                    "date": last_update
-                }
-            })
+            country = {
+                "code": code,
+                "name": name,
+                "population": population,
+                "life_expectancy": life_expectancy,
+                "continent": continent,
+                "capital": capital,
+                "population_density": population_density,
+                "avg_temperature": avg_temperature
+            }
+
+            cases = {
+                "confirmed": getValueOrNone(confirmed),
+                "deaths": getValueOrNone(deaths),
+                "recovered": getValueOrNone(recovered),
+                "delta_confirmed": getValueOrNone(delta_confirmed),
+                "delta_recovered": getValueOrNone(delta_recovered),
+                "date": last_update
+            }
+
+            if not countryFilter:
+                result.append({
+                    "country": country,
+                    "cases": cases,
+                })
+            else:
+                result = cases
 
         return jsonify(result)
 
-    @app.route('/cases-timeline')
+    def getValueOrNone(value):
+        return value if value else None;
+
+    def getIntValue(value):
+        return value if value else 0;
+
+    @app.route('/covid19/cases-daily')
     def cases_total_days():
         country = request.args.get("country")
         query = f"""
