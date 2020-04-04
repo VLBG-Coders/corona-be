@@ -11,6 +11,7 @@ from flask import Flask, g, request, jsonify
 CSV_BASE_URL="https://raw.githubusercontent.com/CSSEGISandData/COVID-19/web-data/data/"
 COUNTRY_JSON_BASE_URL="https://raw.githubusercontent.com/samayo/country-json/master/src/"
 INSERT_BATCH = 100
+IMPORTER_SECRET_KEY = 'c0v1d19'
 
 def create_app(test_config=None):
     # create and configure the app
@@ -103,6 +104,11 @@ def create_app(test_config=None):
 
     @app.route('/import_countries')
     def import_countries():
+        pw = request.args.get("pw")
+
+        if not pw == IMPORTER_SECRET_KEY:
+            return jsonify(404)
+
         json_data = download_country_json("country-by-abbreviation.json")
         countries = json.loads(json_data)
 
@@ -175,12 +181,22 @@ def create_app(test_config=None):
     # testing only
     @app.route('/import_test')
     def import_test():
+        pw = request.args.get("pw")
+
+        if not pw == IMPORTER_SECRET_KEY:
+            return jsonify(404)
+
         with open('cases_time.csv') as csvfile:
             data = read_and_import_csv(csvfile, "cases_time")
         return data
 
     @app.route('/covid19/import_data')
     def import_csv():
+        pw = request.args.get("pw")
+
+        if not pw == IMPORTER_SECRET_KEY:
+            return jsonify(404)
+
         imported = {}
         data = download_csv("cases_time.csv")
         read_and_import_csv(data, "cases_time")
