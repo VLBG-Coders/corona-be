@@ -11,6 +11,19 @@ CREATE TABLE IF NOT EXISTS cases_time (
     delta_recovered INTEGER
 );
 
+DROP TABLE IF EXISTS cases_total;
+CREATE TABLE IF NOT EXISTS cases_total (
+    country_region TEXT,
+    last_update DATETIME,
+    confirmed INTEGER,
+    deaths INTEGER,
+    recovered INTEGER,
+    active INTEGER,
+    delta_confirmed INTEGER,
+    delta_recovered INTEGER,
+    delta_deaths INTEGER
+);
+
 DROP TABLE IF EXISTS cases_country;
 
 CREATE TABLE IF NOT EXISTS cases_country (
