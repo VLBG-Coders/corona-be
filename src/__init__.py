@@ -4,14 +4,18 @@ import sqlite3
 import json
 import csv
 import requests
+import time
 from . import db
 from flask_cors import CORS, cross_origin
-from flask import Flask, g, request, jsonify
+from flask import Flask, g, request, jsonify, current_app
+
+import atexit
+
+from apscheduler.schedulers.background import BackgroundScheduler
 
 CSV_BASE_URL="https://raw.githubusercontent.com/CSSEGISandData/COVID-19/web-data/data/"
 COUNTRY_JSON_BASE_URL="https://raw.githubusercontent.com/samayo/country-json/master/src/"
 INSERT_BATCH = 100
-IMPORTER_SECRET_KEY = 'c0v1d19'
 
 def create_app(test_config=None):
     # create and configure the app
@@ -20,6 +24,7 @@ def create_app(test_config=None):
 
     app.config.from_mapping(
         SECRET_KEY='dev',
+        IMPORTER_SECRET_KEY = 'c0v1d19',
         DATABASE=os.path.join(app.instance_path, 'corona.sqlite'),
     )
 
@@ -56,13 +61,17 @@ def create_app(test_config=None):
         insert_data = []
         header = None
 
+        temp_table_name = table_name + "_new"
+
         for row in cr:
             count+=1
             if count == 1:
                 # CSV Header
                 header = row
                 # Delete all data
-                query = f"DELETE FROM {table_name}"
+                query = f"DROP TABLE IF EXISTS {temp_table_name}"
+                db.get_db().execute(query)
+                query = f"CREATE TABLE {temp_table_name} AS SELECT * FROM {table_name} WHERE 0"
                 db.get_db().execute(query)
                 last_update_index = "Last_Update" in header and header.index("Last_Update") or False
                 continue
@@ -80,55 +89,51 @@ def create_app(test_config=None):
 
             insert_data.append(tuple(row))
             if count % INSERT_BATCH == 0:
-                do_bulk_insert(table_name, insert_data, header)
+                do_bulk_insert(temp_table_name, insert_data, header)
                 insert_data = []
 
             result.append(row)
 
         if insert_data:
-            do_bulk_insert(table_name, insert_data, header)
+            do_bulk_insert(temp_table_name, insert_data, header)
 
-        return json.dumps(result)
+        query = f"DROP TABLE {table_name}"
+        db.get_db().execute(query)
+        query = f"ALTER TABLE {temp_table_name} RENAME TO {table_name}"
+        db.get_db().execute(query)
 
-    def download_csv(name):
+        return result
+
+    def download_csv(name) -> list:
+        """ Downloads csv from covid19 data source. and returns it as decoded list.
+        """
         download = requests.get(CSV_BASE_URL + name)
         decoded_content = download.content.decode('utf-8')
         return decoded_content.split("\n")
 
 
-    def download_country_json(name):
+    def download_country_json(name) -> list:
+        """ Downloads country json and returns it as string.
+        """
         download = requests.get(COUNTRY_JSON_BASE_URL + name)
         decoded_content = download.content.decode('utf-8')
-        return decoded_content
+        return json.loads(decoded_content)
 
 
     @app.route('/import_countries')
     def import_countries():
         pw = request.args.get("pw")
 
-        if not pw == IMPORTER_SECRET_KEY:
+        if not pw == current_app.config["IMPORTER_SECRET_KEY"]:
             return jsonify(404)
 
-        json_data = download_country_json("country-by-abbreviation.json")
-        countries = json.loads(json_data)
-
-        json_data = download_country_json("country-by-population.json")
-        population_list = (json.loads(json_data))
-
-        json_data = download_country_json("country-by-life-expectancy.json")
-        life_expectancy = (json.loads(json_data))
-
-        json_data = download_country_json("country-by-continent.json")
-        continents = (json.loads(json_data))
-
-        json_data = download_country_json("country-by-capital-city.json")
-        capital_cities = (json.loads(json_data))
-
-        json_data = download_country_json("country-by-population-density.json")
-        population_desity = (json.loads(json_data))
-
-        json_data = download_country_json("country-by-yearly-average-temperature.json")
-        avg_temperature = (json.loads(json_data))
+        countries = download_country_json("country-by-abbreviation.json")
+        population_list = download_country_json("country-by-population.json")
+        life_expectancy = download_country_json("country-by-life-expectancy.json")
+        continents = download_country_json("country-by-continent.json")
+        capital_cities = download_country_json("country-by-capital-city.json")
+        population_density = download_country_json("country-by-population-density.json")
+        avg_temperature = download_country_json("country-by-yearly-average-temperature.json")
 
         query = f"DELETE FROM countries"
         db.get_db().execute(query)
@@ -152,7 +157,7 @@ def create_app(test_config=None):
             life_expectancy_obj = next((x for x in life_expectancy if x.get("country") == country.get("country")), {})
             continents_obj = next((x for x in continents if x.get("country") == country.get("country")), {})
             capital_cities_obj = next((x for x in capital_cities if x.get("country") == country.get("country")), {})
-            population_desity_obj = next((x for x in population_desity if x.get("country") == country.get("country")), {})
+            population_density_obj = next((x for x in population_density if x.get("country") == country.get("country")), {})
             avg_temperature_obj = next((x for x in avg_temperature if x.get("country") == country.get("country")), {})
 
             obj = (
@@ -162,7 +167,7 @@ def create_app(test_config=None):
                 life_expectancy_obj.get("expectancy"),
                 continents_obj.get("continent"),
                 capital_cities_obj.get("city"),
-                population_desity_obj.get("density"),
+                population_density_obj.get("density"),
                 avg_temperature_obj.get("temperature")
             )
 
@@ -177,31 +182,30 @@ def create_app(test_config=None):
         do_bulk_insert("countries", data, dbPropertyMapping)
 
         return jsonify(True)
+    
+    def download_and_import_covid_csv(name):
+        data = download_csv(name + ".csv")
+        result = read_and_import_csv(data, name)
+        current_app.logger.info("Imported %s entries for %s", len(result), name)
 
-    # testing only
-    @app.route('/import_test')
-    def import_test():
-        pw = request.args.get("pw")
+    def start_covid_import():
+        start_time = time.monotonic()
+        current_app.logger.info("Running import of covid 19 data.")
 
-        if not pw == IMPORTER_SECRET_KEY:
-            return jsonify(404)
+        download_and_import_covid_csv("cases_time")
+        download_and_import_covid_csv("cases_country")
 
-        with open('cases_time.csv') as csvfile:
-            data = read_and_import_csv(csvfile, "cases_time")
-        return data
+        current_app.logger.info("Import finished in %s seconds", time.monotonic() - start_time)
 
     @app.route('/covid19/import_data')
-    def import_csv():
+    def import_covid_data():
         pw = request.args.get("pw")
 
-        if not pw == IMPORTER_SECRET_KEY:
+        if not pw == current_app.config["IMPORTER_SECRET_KEY"]:
+            current_app.logger.info("Wrong password entered for covid import")
             return jsonify(404)
 
-        imported = {}
-        data = download_csv("cases_time.csv")
-        read_and_import_csv(data, "cases_time")
-        data = download_csv("cases_country.csv")
-        read_and_import_csv(data, "cases_country")
+        start_covid_import()
 
         return jsonify("True")
 
@@ -402,23 +406,23 @@ def create_app(test_config=None):
 
         if worldwide:
             result = {}
-            toal_confirmed = 0;
-            toal_deaths = 0;
-            toal_recovered = 0;
-            toal_delta_confirmed = 0;
-            toal_delta_recovered = 0;
+            toal_confirmed = 0
+            toal_deaths = 0
+            toal_recovered = 0
+            toal_delta_confirmed = 0
+            toal_delta_recovered = 0
             #TODO
-            toal_delta_deaths = None;
+            toal_delta_deaths = None
 
             for row in cursor.fetchall():
                 country_region, confirmed, deaths, recovered, last_update, delta_confirmed, delta_recovered = row
 
                 if worldwide:
-                    toal_confirmed += getIntValue(confirmed);
-                    toal_deaths += getIntValue(deaths);
-                    toal_recovered += getIntValue(recovered);
-                    toal_delta_confirmed += getIntValue(delta_confirmed);
-                    toal_delta_recovered += getIntValue(delta_recovered);
+                    toal_confirmed += getIntValue(confirmed)
+                    toal_deaths += getIntValue(deaths)
+                    toal_recovered += getIntValue(recovered)
+                    toal_delta_confirmed += getIntValue(delta_confirmed)
+                    toal_delta_recovered += getIntValue(delta_recovered)
 
             result = {
                 "confirmed": toal_confirmed,
@@ -509,6 +513,17 @@ def create_app(test_config=None):
             })
 
         return jsonify(result)
+
+    # Start jobs
+
+    app_ctx = app.app_context()
+    app_ctx.push()
+    import_scheduler = BackgroundScheduler()
+    import_scheduler.add_job(func=start_covid_import, trigger="interval", hours=2)
+    import_scheduler.start()
+    # Shut down the scheduler when exiting the app
+    atexit.register(lambda: import_scheduler.shutdown())
+
 
     return app
 
