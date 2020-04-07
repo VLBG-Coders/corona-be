@@ -452,8 +452,8 @@ def create_app(test_config=None):
             c.avg_temperature
         FROM cases_total ct
         JOIN countries c ON ct.country_region = c.name
-        ORDER BY c.name
         { where }
+        ORDER BY c.name
         """
         cursor.execute(query)
 
