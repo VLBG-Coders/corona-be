@@ -19,8 +19,8 @@ All country data are imported based on these JSON files: `https://github.com/sam
 
 Run the import: `/import_countries`
 
-## 1.1 Countries Importer
+## 1.1 Covid-19 Importer
 
 All COVID-19 data are imported based on these CSV files: `https://github.com/CSSEGISandData/COVID-19/tree/web-data/data`.
 
-Run the import: `/import_covid19`
+Run the import: `/covid19/import_data`
