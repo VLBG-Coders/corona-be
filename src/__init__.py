@@ -11,6 +11,7 @@ from flask import Flask, g, request, jsonify, current_app
 import logging
 import atexit
 from .importer import CovidImporter, CountryImporter
+from .utils import map_date
 
 from apscheduler.schedulers.background import BackgroundScheduler
 
@@ -176,14 +177,15 @@ def create_app(test_config=None):
         cursor = db.get_db().cursor()
         query = f"""
         SELECT
-            sum(ct.confirmed),
-            sum(ct.deaths),
-            sum(ct.recovered),
+            sum(cc.confirmed),
+            sum(cc.deaths),
+            sum(cc.recovered),
             max(ct.last_update),
             sum(ct.delta_confirmed),
             sum(ct.delta_recovered),
             sum(ct.delta_deaths)
         FROM cases_total ct
+        JOIN cases_country cc ON ct.country_code = cc.country_code
         """
         cursor.execute(query)
 
@@ -198,7 +200,7 @@ def create_app(test_config=None):
             "delta_confirmed": delta_confirmed,
             "delta_recovered": delta_recovered,
             "delta_deaths": delta_deaths,
-            "date": last_update
+            "date": map_date(last_update)
         }
 
         return jsonify(result)
