@@ -15,9 +15,9 @@ Please log in to the server and follow these steps:
 - `cd /var/data/websites/corona-be`
 - `git pull`
 - `venv/bin/pip install -r requirements.txt`
-- `ps aux | grep waitress`
-- `kill -9 <process-id>`
-- `venv/bin/waitress-serve --call src:create_app` &
+- `fg`
+- `<ctrl + c>`
+- `venv/bin/waitress-serve --call src:create_app &> backend.log &`
 
 ## 2. Deployment on Prod-Instance
 
