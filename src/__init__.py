@@ -77,11 +77,11 @@ def create_app(test_config=None):
 
     @app.route('/countries')
     def countries():
-        countryFilter = request.args.get("country")
+        country_filter = request.args.get("country")
 
         where = ""
-        if countryFilter:
-            where = f" WHERE LOWER(name) = '{countryFilter.lower()}'"
+        if country_filter:
+            where = f" WHERE LOWER(name) = '{country_filter.lower()}'"
 
         query = f"""
         SELECT code, name, population, life_expectancy, continent, capital, population_density, avg_temperature
@@ -109,7 +109,7 @@ def create_app(test_config=None):
             }
             result.append(country)
 
-            if countryFilter:
+            if country_filter:
                 result = country
 
         return jsonify(result)
@@ -205,7 +205,7 @@ def create_app(test_config=None):
 
     @app.route('/covid19/cases-total')
     def cases_by_countries():
-        countryFilter = request.args.get("country")
+        country_filter = request.args.get("country")
         worldwide = request.args.get("worldwide")
 
         if worldwide:
@@ -214,8 +214,8 @@ def create_app(test_config=None):
         cursor = db.get_db().cursor()
 
         where = ""
-        if countryFilter:
-            where = f"WHERE LOWER(c.name) = '{countryFilter.lower()}'"
+        if country_filter:
+            where = f"WHERE LOWER(ct.country_region) = '{country_filter.lower()}'"
 
         query = f"""
         SELECT 
@@ -237,8 +237,8 @@ def create_app(test_config=None):
             c.population_density,
             c.avg_temperature
         FROM cases_total ct
-        JOIN countries c ON ct.country_region = c.name
-        JOIN cases_country cc ON cc.country_region = ct.country_region
+        JOIN countries c ON ct.country_code = c.code
+        JOIN cases_country cc ON cc.country_code = ct.country_code
         { where }
         ORDER BY c.name
         """
@@ -272,7 +272,7 @@ def create_app(test_config=None):
                 "date": last_update
             }
 
-            if not countryFilter:
+            if not country_filter:
                 result.append({
                     "country": country,
                     "cases": cases,
@@ -321,15 +321,13 @@ def create_app(test_config=None):
 
         return jsonify(result)
 
-    # Start jobs
-    covid_importer = CovidImporter()
-    app_ctx = app.app_context()
-    app_ctx.push()
-    import_scheduler = BackgroundScheduler()
-    import_scheduler.add_job(func=covid_importer.start, trigger="interval", hours=2)
-    import_scheduler.start()
-    # Shut down the scheduler when exiting the app
-    atexit.register(lambda: import_scheduler.shutdown())
+    ## Start jobs
+    #covid_importer = CovidImporter()
+    #import_scheduler = BackgroundScheduler()
+    #import_scheduler.add_job(func=covid_importer.scheduled_start, args=[app], trigger="interval", seconds=20)
+    #import_scheduler.start()
+    ## Shut down the scheduler when exiting the app
+    #atexit.register(lambda: import_scheduler.shutdown())
 
 
     return app

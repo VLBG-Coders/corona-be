@@ -6,6 +6,7 @@ import time
 from . import db
 from flask import current_app
 
+COUNTRY_LUT_URL = "https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/UID_ISO_FIPS_LookUp_Table.csv"
 CSV_BASE_URL = "https://raw.githubusercontent.com/CSSEGISandData/COVID-19/web-data/data/"
 COUNTRY_JSON_BASE_URL = "https://raw.githubusercontent.com/samayo/country-json/master/src/"
 INSERT_BATCH = 100
@@ -22,6 +23,40 @@ def do_bulk_insert(table_name, data, header):
 
 class CovidImporter:
 
+    def __init__(self):
+        self.init_lookup_table()
+
+    def init_lookup_table(self):
+        data = self._download_csv(COUNTRY_LUT_URL)
+        cr = csv.reader(data, delimiter=',', quotechar='"')
+        count = 0
+        result = []
+
+        self.country_lookup = {}
+
+        for row in cr:
+            count += 1
+            if count == 1:
+                # CSV Header
+                header = row
+
+                index_country_region = header.index("Country_Region")
+                index_iso2 = header.index("iso2")
+
+                continue
+
+            if len(row) != len(header):
+                continue
+
+            self.country_lookup[row[index_country_region]] = row[index_iso2]
+
+    def _get_country_code(self, country_region):
+        """ Returns country code by given country_region.
+        """
+        if country_region in self.country_lookup:
+            return self.country_lookup[country_region]
+        return None
+
     def _read_and_import_csv(self, data, table_name):
         """ Import all data. no delta import.
         """
@@ -30,6 +65,7 @@ class CovidImporter:
         result = []
         insert_data = []
         header = None
+        additional_headers = ["country_code"]
 
         temp_table_name = table_name + "_new"
 
@@ -38,6 +74,7 @@ class CovidImporter:
             if count == 1:
                 # CSV Header
                 header = row
+                header = header + additional_headers
                 # Delete all data
                 query = f"DROP TABLE IF EXISTS {temp_table_name}"
                 db.get_db().execute(query)
@@ -45,9 +82,12 @@ class CovidImporter:
                 db.get_db().execute(query)
                 last_update_index = "Last_Update" in header and header.index(
                     "Last_Update") or False
+
+                index_country_region = header.index("Country_Region")
+
                 continue
 
-            if len(row) != len(header):
+            if len(row) != len(header)-len(additional_headers):
                 continue
 
             # handle date dd/mm/yy
@@ -58,6 +98,8 @@ class CovidImporter:
                     month, day, year = re_result.groups()
                     # attention: this will only work for 80 years! ;)
                     row[last_update_index] = f"20{year}-{int(month):02}-{int(day):02}"
+
+            row.append(self._get_country_code(row[index_country_region]))
 
             insert_data.append(tuple(row))
             if count % INSERT_BATCH == 0:
@@ -92,12 +134,14 @@ class CovidImporter:
         last_deaths: int = 0
         last_row: list = None
 
+        additional_headers = ["Delta_Deaths", "country_code"]
+
         for row in cr:
             count += 1
             if count == 1:
                 # CSV Header
                 header = row
-                header.append("Delta_Deaths")
+                header = header + additional_headers
                 # Delete all data
                 query = f"DROP TABLE IF EXISTS {temp_table_name}"
                 db.get_db().execute(query)
@@ -111,7 +155,7 @@ class CovidImporter:
 
                 continue
 
-            if len(row) != len(header)-1:
+            if len(row) != len(header)-len(additional_headers):
                 continue
 
             current_country = row[country_index]
@@ -133,6 +177,7 @@ class CovidImporter:
 
             # Save row data for next loop run
             row.append(current_deaths-last_deaths)
+            row.append(self._get_country_code(row[country_index]))
             last_deaths = current_deaths
             last_country = current_country
             last_row = row
@@ -153,15 +198,20 @@ class CovidImporter:
 
         return result
 
-    def _download_csv(self, name) -> list:
-        """ Downloads csv from covid19 data source. and returns it as decoded list.
+    def _download_csv(self, url) -> list:
+        """ Downloads csv from given url and returns it as decoded list.
         """
-        download = requests.get(CSV_BASE_URL + name)
+        download = requests.get(url)
         decoded_content = download.content.decode('utf-8')
         return decoded_content.split("\n")
 
+    def _download_covid_csv(self, name) -> list:
+        """ Downloads csv from covid19 data source and returns it as decoded list.
+        """
+        return self._download_csv(CSV_BASE_URL + name)
+
     def _download_and_import_covid_csv(self, name):
-        data = self._download_csv(name + ".csv")
+        data = self._download_covid_csv(name + ".csv")
         result = self._read_and_import_csv(data, name)
         current_app.logger.info("Imported %s entries for %s", len(result), name)
 
@@ -178,6 +228,13 @@ class CovidImporter:
         current_app.logger.info("Import finished in %s seconds",
                                 time.monotonic() - start_time)
 
+    def scheduled_start(self, app):
+        """ called by ap backgroundscheduler
+        """
+        with app.app_context():
+            current_app.logger.info("asdf")
+            db.init_app(app)
+            self.start()
 
 class CountryImporter:
 

@@ -2,6 +2,7 @@ DROP TABLE IF EXISTS cases_time;
 
 CREATE TABLE IF NOT EXISTS cases_time (
     country_region TEXT,
+    country_code TEXT,
     last_update DATETIME,
     confirmed INTEGER,
     deaths INTEGER,
@@ -14,6 +15,7 @@ CREATE TABLE IF NOT EXISTS cases_time (
 DROP TABLE IF EXISTS cases_total;
 CREATE TABLE IF NOT EXISTS cases_total (
     country_region TEXT,
+    country_code TEXT,
     last_update DATETIME,
     confirmed INTEGER,
     deaths INTEGER,
@@ -28,6 +30,7 @@ DROP TABLE IF EXISTS cases_country;
 
 CREATE TABLE IF NOT EXISTS cases_country (
     country_region TEXT,
+    country_code TEXT,
     last_update DATETIME,
     lat REAL,
     long_ REAL,
