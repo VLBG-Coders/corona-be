@@ -2,6 +2,7 @@
 
 #### unreleased
 
+- Moved importer into dedicated file
 - Added table cases-total which contains delta_deaths
 - Fixed import to cause almost no downtime
 - Added background scheduler for triggering import every hour

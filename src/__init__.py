@@ -10,6 +10,7 @@ from flask_cors import CORS, cross_origin
 from flask import Flask, g, request, jsonify, current_app
 import logging
 import atexit
+from .importer import CovidImporter, CountryImporter
 
 from apscheduler.schedulers.background import BackgroundScheduler
 
@@ -47,237 +48,20 @@ def create_app(test_config=None):
     # db init
     db.init_app(app)
 
-    def do_bulk_insert(table_name, data, header):
-        # Replace empty strings with None.
-        data = tuple(x if x else None for x in data)
-        placeholder = ["?" for i in range(len(header))]
-        query = f'INSERT INTO {table_name} ({",".join(header).lower()}) VALUES ({",".join(placeholder)})'
-        db.get_db().executemany(query, data)
-        db.get_db().commit()
-
-    def read_and_import_csv(data, table_name):
-        """ Import all data. no delta import.
-        """
-        cr = csv.reader(data, delimiter=',', quotechar='"')
-        count=0
-        result = []
-        insert_data = []
-        header = None
-
-        temp_table_name = table_name + "_new"
-
-        for row in cr:
-            count+=1
-            if count == 1:
-                # CSV Header
-                header = row
-                # Delete all data
-                query = f"DROP TABLE IF EXISTS {temp_table_name}"
-                db.get_db().execute(query)
-                query = f"CREATE TABLE {temp_table_name} AS SELECT * FROM {table_name} WHERE 0"
-                db.get_db().execute(query)
-                last_update_index = "Last_Update" in header and header.index("Last_Update") or False
-                continue
-
-            if len(row) != len(header):
-                continue
-
-            # handle date dd/mm/yy
-            if last_update_index is not False:
-                re_result = re.search('(\d{1,2})/(\d{1,2})/(\d{2})', row[last_update_index])
-                if re_result:
-                    month, day, year = re_result.groups()
-                    # attention: this will only work for 80 years! ;)
-                    row[last_update_index] = f"20{year}-{int(month):02}-{int(day):02}"
-
-            insert_data.append(tuple(row))
-            if count % INSERT_BATCH == 0:
-                do_bulk_insert(temp_table_name, insert_data, header)
-                insert_data = []
-
-            result.append(row)
-
-        if insert_data:
-            do_bulk_insert(temp_table_name, insert_data, header)
-
-        query = f"DROP TABLE {table_name}"
-        db.get_db().execute(query)
-        query = f"ALTER TABLE {temp_table_name} RENAME TO {table_name}"
-        db.get_db().execute(query)
-
-        return result
-
-    def read_and_import_cases_total(data):
-        """ Import all data. no delta import.
-        """
-        cr = csv.reader(data, delimiter=',', quotechar='"')
-        count=0
-        result = []
-        insert_data = []
-        header = None
-        table_name="cases_total"
-
-        temp_table_name = table_name + "_new"
-
-        last_country: str = None
-        last_deaths: int = 0
-        last_row: list = None
-
-        for row in cr:
-            count+=1
-            if count == 1:
-                # CSV Header
-                header = row
-                header.append("Delta_Deaths")
-                # Delete all data
-                query = f"DROP TABLE IF EXISTS {temp_table_name}"
-                db.get_db().execute(query)
-                query = f"CREATE TABLE {temp_table_name} AS SELECT * FROM {table_name} WHERE 0"
-                db.get_db().execute(query)
-                last_update_index = "Last_Update" in header and header.index("Last_Update")
-                country_index = "Country_Region" in header and header.index("Country_Region")
-                deaths_index = "Deaths" in header and header.index("Deaths")
-
-                continue
-
-            if len(row) != len(header)-1:
-                continue
-
-            current_country = row[country_index]
-            current_deaths = int(row[deaths_index])
-
-            # Assumption: List is ordered by countries and dates, so each time the country
-            # changes we have got the latest record of a country in the record before.
-            if last_row and last_country != current_country:
-                # handle date dd/mm/yy
-                if last_update_index is not False:
-                    re_result = re.search('(\d{1,2})/(\d{1,2})/(\d{2})', row[last_update_index])
-                    if re_result:
-                        month, day, year = re_result.groups()
-                        # attention: this will only work for 80 years! ;)
-                        last_row[last_update_index] = f"20{year}-{int(month):02}-{int(day):02}"
-                insert_data.append(tuple(last_row))
-                last_deaths = 0
-
-            # Save row data for next loop run
-            row.append(current_deaths-last_deaths)
-            last_deaths = current_deaths
-            last_country = current_country
-            last_row = row
-
-            if len(insert_data) % INSERT_BATCH == 0:
-                do_bulk_insert(temp_table_name, insert_data, header)
-                insert_data = []
-
-            result.append(row)
-
-
-        insert_data.append(last_row)
-        do_bulk_insert(temp_table_name, insert_data, header)
-
-        query = f"DROP TABLE {table_name}"
-        db.get_db().execute(query)
-        query = f"ALTER TABLE {temp_table_name} RENAME TO {table_name}"
-        db.get_db().execute(query)
-
-        return result
-
-    def download_csv(name) -> list:
-        """ Downloads csv from covid19 data source. and returns it as decoded list.
-        """
-        download = requests.get(CSV_BASE_URL + name)
-        decoded_content = download.content.decode('utf-8')
-        return decoded_content.split("\n")
-
-
-    def download_country_json(name) -> list:
-        """ Downloads country json and returns it as string.
-        """
-        download = requests.get(COUNTRY_JSON_BASE_URL + name)
-        decoded_content = download.content.decode('utf-8')
-        return json.loads(decoded_content)
-
-
     @app.route('/import_countries')
     def import_countries():
         pw = request.args.get("pw")
 
         if not pw == current_app.config["IMPORTER_SECRET_KEY"]:
+            current_app.logger.info("Wrong password entered for covid import")
             return jsonify(404)
 
-        countries = download_country_json("country-by-abbreviation.json")
-        population_list = download_country_json("country-by-population.json")
-        life_expectancy = download_country_json("country-by-life-expectancy.json")
-        continents = download_country_json("country-by-continent.json")
-        capital_cities = download_country_json("country-by-capital-city.json")
-        population_density = download_country_json("country-by-population-density.json")
-        avg_temperature = download_country_json("country-by-yearly-average-temperature.json")
-
-        query = f"DELETE FROM countries"
-        db.get_db().execute(query)
-
-        data = []
-        result = []
-        count = 0
-        dbPropertyMapping = [
-            "code",
-            "name",
-            "population",
-            "life_expectancy",
-            "continent",
-            "capital",
-            "population_density",
-            "avg_temperature"
-        ]
-
-        for country in countries:
-            population_obj = next((x for x in population_list if x.get("country") == country.get("country")), {})
-            life_expectancy_obj = next((x for x in life_expectancy if x.get("country") == country.get("country")), {})
-            continents_obj = next((x for x in continents if x.get("country") == country.get("country")), {})
-            capital_cities_obj = next((x for x in capital_cities if x.get("country") == country.get("country")), {})
-            population_density_obj = next((x for x in population_density if x.get("country") == country.get("country")), {})
-            avg_temperature_obj = next((x for x in avg_temperature if x.get("country") == country.get("country")), {})
-
-            obj = (
-                country.get("abbreviation"),
-                country.get("country"),
-                population_obj.get("population"),
-                life_expectancy_obj.get("expectancy"),
-                continents_obj.get("continent"),
-                capital_cities_obj.get("city"),
-                population_density_obj.get("density"),
-                avg_temperature_obj.get("temperature")
-            )
-
-            data.append(obj)
-            result.append(obj)
-
-            count += 1
-            if count % INSERT_BATCH == 0:
-                do_bulk_insert("countries", data, dbPropertyMapping)
-                data = []
-
-        do_bulk_insert("countries", data, dbPropertyMapping)
+        importer = CountryImporter()
+        importer.start()
 
         return jsonify(True)
+
     
-    def download_and_import_covid_csv(name):
-        data = download_csv(name + ".csv")
-        result = read_and_import_csv(data, name)
-        current_app.logger.info("Imported %s entries for %s", len(result), name)
-        return data
-
-    def start_covid_import():
-        start_time = time.monotonic()
-        current_app.logger.info("Running import of covid 19 data.")
-
-        data = download_and_import_covid_csv("cases_time")
-        read_and_import_cases_total(data)
-        download_and_import_covid_csv("cases_country")
-
-
-        current_app.logger.info("Import finished in %s seconds", time.monotonic() - start_time)
-
     @app.route('/covid19/import_data')
     def import_covid_data():
         pw = request.args.get("pw")
@@ -286,7 +70,8 @@ def create_app(test_config=None):
             current_app.logger.info("Wrong password entered for covid import")
             return jsonify(404)
 
-        start_covid_import()
+        importer = CovidImporter()
+        importer.start()
 
         return jsonify(True)
 
@@ -435,9 +220,10 @@ def create_app(test_config=None):
         query = f"""
         SELECT 
             ct.country_region,
-            ct.confirmed,
-            ct.deaths,
-            ct.recovered,
+            cc.confirmed,
+            cc.deaths,
+            cc.recovered,
+            cc.active,
             ct.last_update,
             ct.delta_confirmed,
             ct.delta_recovered,
@@ -452,6 +238,7 @@ def create_app(test_config=None):
             c.avg_temperature
         FROM cases_total ct
         JOIN countries c ON ct.country_region = c.name
+        JOIN cases_country cc ON cc.country_region = ct.country_region
         { where }
         ORDER BY c.name
         """
@@ -461,7 +248,7 @@ def create_app(test_config=None):
         country = {}
         cases = {}
         for row in cursor.fetchall():
-            country_region, confirmed, deaths, recovered, last_update, delta_confirmed, delta_recovered, delta_deaths, code, name, population, life_expectancy, continent, capital, population_density, avg_temperature = row
+            country_region, confirmed, deaths, recovered, active, last_update, delta_confirmed, delta_recovered, delta_deaths, code, name, population, life_expectancy, continent, capital, population_density, avg_temperature = row
 
             country = {
                 "code": code,
@@ -475,12 +262,13 @@ def create_app(test_config=None):
             }
 
             cases = {
-                "confirmed": getValueOrNone(confirmed),
-                "deaths": getValueOrNone(deaths),
-                "recovered": getValueOrNone(recovered),
-                "delta_confirmed": getValueOrNone(delta_confirmed),
-                "delta_recovered": getValueOrNone(delta_recovered),
-                "delta_deaths": getValueOrNone(delta_deaths),
+                "confirmed": getIntOrNone(confirmed),
+                "deaths": getIntOrNone(deaths),
+                "recovered": getIntOrNone(recovered),
+                "active": getIntOrNone(active),
+                "delta_confirmed": getIntOrNone(delta_confirmed),
+                "delta_recovered": getIntOrNone(delta_recovered),
+                "delta_deaths": getIntOrNone(delta_deaths),
                 "date": last_update
             }
 
@@ -494,8 +282,10 @@ def create_app(test_config=None):
 
         return jsonify(result)
 
-    def getValueOrNone(value):
-        return value if value else None;
+    def getIntOrNone(value):
+        if isinstance(value, int):
+            return value
+        return None
 
     @app.route('/covid19/cases-daily')
     def cases_total_days():
@@ -532,10 +322,11 @@ def create_app(test_config=None):
         return jsonify(result)
 
     # Start jobs
+    covid_importer = CovidImporter()
     app_ctx = app.app_context()
     app_ctx.push()
     import_scheduler = BackgroundScheduler()
-    import_scheduler.add_job(func=start_covid_import, trigger="interval", hours=2)
+    import_scheduler.add_job(func=covid_importer.start, trigger="interval", hours=2)
     import_scheduler.start()
     # Shut down the scheduler when exiting the app
     atexit.register(lambda: import_scheduler.shutdown())
