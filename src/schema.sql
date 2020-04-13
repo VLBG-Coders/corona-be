@@ -9,7 +9,15 @@ CREATE TABLE IF NOT EXISTS cases_time (
     recovered INTEGER,
     active INTEGER,
     delta_confirmed INTEGER,
-    delta_recovered INTEGER
+    delta_recovered INTEGER,
+    incident_rate REAL,
+    people_tested INTEGER,
+    people_hospitalized INTEGER,
+    province_state TEXT,
+    FIPS TEXT,
+    UID TEXT,
+    iso3 TEXT,
+    Report_Date_String DATETIME
 );
 
 DROP TABLE IF EXISTS cases_total;
@@ -23,7 +31,15 @@ CREATE TABLE IF NOT EXISTS cases_total (
     active INTEGER,
     delta_confirmed INTEGER,
     delta_recovered INTEGER,
-    delta_deaths INTEGER
+    delta_deaths INTEGER,
+    incident_rate REAL,
+    people_tested INTEGER,
+    people_hospitalized INTEGER,
+    province_state TEXT,
+    FIPS TEXT,
+    UID TEXT,
+    iso3 TEXT,
+    Report_Date_String DATETIME
 );
 
 DROP TABLE IF EXISTS cases_country;
@@ -37,7 +53,13 @@ CREATE TABLE IF NOT EXISTS cases_country (
     confirmed INTEGER,
     deaths INTEGER,
     recovered INTEGER,
-    active INTEGER
+    active INTEGER,
+    incident_rate REAL,
+    people_tested INTEGER,
+    people_hospitalized INTEGER,
+    mortality_rate REAL,
+    UID TEXT,
+    iso3 TEXT
 );
 
 DROP TABLE IF EXISTS countries;
