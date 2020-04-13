@@ -3,6 +3,7 @@ import json
 import csv
 import requests
 import time
+import logging
 from . import db
 from flask import current_app
 
@@ -11,6 +12,8 @@ CSV_BASE_URL = "https://raw.githubusercontent.com/CSSEGISandData/COVID-19/web-da
 COUNTRY_JSON_BASE_URL = "https://raw.githubusercontent.com/samayo/country-json/master/src/"
 INSERT_BATCH = 100
 
+logger = logging.getLogger('waitress')
+logger.setLevel(logging.INFO)
 
 def do_bulk_insert(table_name, data, header):
     # Replace empty strings with None.
@@ -33,6 +36,7 @@ class CovidImporter:
         result = []
 
         self.country_lookup = {}
+        self.country_lookup_iso3 = {}
 
         for row in cr:
             count += 1
@@ -42,6 +46,7 @@ class CovidImporter:
 
                 index_country_region = header.index("Country_Region")
                 index_iso2 = header.index("iso2")
+                index_iso3 = header.index("iso3")
 
                 continue
 
@@ -49,12 +54,20 @@ class CovidImporter:
                 continue
 
             self.country_lookup[row[index_country_region]] = row[index_iso2]
+            self.country_lookup_iso3[row[index_iso3]] = row[index_iso2]
 
     def _get_country_code(self, country_region):
         """ Returns country code by given country_region.
         """
         if country_region in self.country_lookup:
             return self.country_lookup[country_region]
+        return None
+
+    def _get_country_code_by_iso3(self, iso3):
+        """ Returns country code by given country_region.
+        """
+        if iso3 in self.country_lookup_iso3:
+            return self.country_lookup_iso3[iso3]
         return None
 
     def _read_and_import_csv(self, data, table_name):
@@ -84,6 +97,10 @@ class CovidImporter:
                     "Last_Update") or False
 
                 index_country_region = header.index("Country_Region")
+                try:
+                    index_iso3 = header.index("ISO3")
+                except ValueError:
+                    index_iso3 = header.index("iso3")
 
                 continue
 
@@ -99,7 +116,7 @@ class CovidImporter:
                     # attention: this will only work for 80 years! ;)
                     row[last_update_index] = f"20{year}-{int(month):02}-{int(day):02}"
 
-            row.append(self._get_country_code(row[index_country_region]))
+            row.append(self._get_country_code_by_iso3(row[index_iso3]))
 
             insert_data.append(tuple(row))
             if count % INSERT_BATCH == 0:
@@ -152,6 +169,7 @@ class CovidImporter:
                 country_index = "Country_Region" in header and header.index(
                     "Country_Region")
                 deaths_index = "Deaths" in header and header.index("Deaths")
+                index_iso3 = header.index("iso3")
 
                 continue
 
@@ -177,7 +195,7 @@ class CovidImporter:
 
             # Save row data for next loop run
             row.append(current_deaths-last_deaths)
-            row.append(self._get_country_code(row[country_index]))
+            row.append(self._get_country_code_by_iso3(row[index_iso3]))
             last_deaths = current_deaths
             last_country = current_country
             last_row = row

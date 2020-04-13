@@ -79,10 +79,13 @@ def create_app(test_config=None):
     @app.route('/countries')
     def countries():
         country_filter = request.args.get("country")
+        country_code_filter = request.args.get("code")
 
         where = ""
         if country_filter:
             where = f" WHERE LOWER(name) = '{country_filter.lower()}'"
+        elif country_code_filter:
+            where = f" WHERE LOWER(country_code) = '{country_code_filter.lower()}'"
 
         query = f"""
         SELECT code, name, population, life_expectancy, continent, capital, population_density, avg_temperature
@@ -110,7 +113,7 @@ def create_app(test_config=None):
             }
             result.append(country)
 
-            if country_filter:
+            if country_filter or country_code_filter:
                 result = country
 
         return jsonify(result)
@@ -208,6 +211,7 @@ def create_app(test_config=None):
     @app.route('/covid19/cases-total')
     def cases_by_countries():
         country_filter = request.args.get("country")
+        country_code_filter = request.args.get("code")
         worldwide = request.args.get("worldwide")
 
         if worldwide:
@@ -218,6 +222,8 @@ def create_app(test_config=None):
         where = ""
         if country_filter:
             where = f"WHERE LOWER(ct.country_region) = '{country_filter.lower()}'"
+        elif country_code_filter:
+            where = f" WHERE LOWER(ct.country_code) = '{country_code_filter.lower()}'"
 
         query = f"""
         SELECT 
@@ -274,13 +280,15 @@ def create_app(test_config=None):
                 "date": last_update
             }
 
-            if not country_filter:
+            if not country_filter or not country_code_filter:
                 result.append({
                     "country": country,
                     "cases": cases,
                 })
             else:
                 result = cases
+
+            break
 
         return jsonify(result)
 
