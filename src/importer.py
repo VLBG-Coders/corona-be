@@ -170,10 +170,14 @@ class CovidImporter:
                     "Country_Region")
                 deaths_index = "Deaths" in header and header.index("Deaths")
                 index_iso3 = header.index("iso3")
+                index_province = header.index("Province_State")
 
                 continue
 
             if len(row) != len(header)-len(additional_headers):
+                continue
+
+            if row[index_province] != "":
                 continue
 
             current_country = row[country_index]
