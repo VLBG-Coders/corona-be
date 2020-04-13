@@ -288,8 +288,6 @@ def create_app(test_config=None):
             else:
                 result = cases
 
-            break
-
         return jsonify(result)
 
     def getIntOrNone(value):
@@ -299,11 +297,14 @@ def create_app(test_config=None):
 
     @app.route('/covid19/cases-daily')
     def cases_total_days():
-        country = request.args.get("country")
+        country_filter = request.args.get("country")
+        country_code_filter = request.args.get("code")
 
         where = ""
-        if country:
-            where = f"WHERE LOWER(country_region) = '{country.lower()}'"
+        if country_filter:
+            where = f"WHERE LOWER(country_region) = '{country_filter.lower()}'"
+        elif country_code_filter:
+            where = f"WHERE LOWER(country_code) = '{country_code_filter.lower()}'"
         
         query = f"""
         SELECT SUM(confirmed) as confirmed, SUM(deaths) as deaths, SUM(recovered) as recovered, last_update
