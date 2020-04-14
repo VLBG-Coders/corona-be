@@ -62,7 +62,7 @@ def create_app(test_config=None):
 
         return jsonify(True)
 
-    
+
     @app.route('/covid19/import_data')
     def import_covid_data():
         pw = request.args.get("pw")
@@ -85,7 +85,7 @@ def create_app(test_config=None):
         if country_filter:
             where = f" WHERE LOWER(name) = '{country_filter.lower()}'"
         elif country_code_filter:
-            where = f" WHERE LOWER(country_code) = '{country_code_filter.lower()}'"
+            where = f" WHERE LOWER(code) = '{country_code_filter.lower()}'"
 
         query = f"""
         SELECT code, name, population, life_expectancy, continent, capital, population_density, avg_temperature
@@ -226,7 +226,7 @@ def create_app(test_config=None):
             where = f" WHERE LOWER(ct.country_code) = '{country_code_filter.lower()}'"
 
         query = f"""
-        SELECT 
+        SELECT
             ct.country_region,
             cc.confirmed,
             cc.deaths,
@@ -305,7 +305,7 @@ def create_app(test_config=None):
             where = f"WHERE LOWER(country_region) = '{country_filter.lower()}'"
         elif country_code_filter:
             where = f"WHERE LOWER(country_code) = '{country_code_filter.lower()}'"
-        
+
         query = f"""
         SELECT SUM(confirmed) as confirmed, SUM(deaths) as deaths, SUM(recovered) as recovered, last_update
         FROM cases_time
