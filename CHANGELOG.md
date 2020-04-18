@@ -2,6 +2,8 @@
 
 #### unreleased
 
+- Added delta_confirmed and delta_recovered to cases-daily endpoint
+- Added importer of recovered and delta recovered
 - Added filter code to endpoints to filter for country_code (iso2)
 - Adapted db schema according to current csv format
 - Changed country mapping to use iso3 for identifying matches

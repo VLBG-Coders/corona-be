@@ -5,12 +5,15 @@ import requests
 import time
 import logging
 from . import db
+from .utils import map_date
 from flask import current_app
 
+COVID_MASTER_BASE_URL = "https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/"
 COUNTRY_LUT_URL = "https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/UID_ISO_FIPS_LookUp_Table.csv"
 CSV_BASE_URL = "https://raw.githubusercontent.com/CSSEGISandData/COVID-19/web-data/data/"
 COUNTRY_JSON_BASE_URL = "https://raw.githubusercontent.com/samayo/country-json/master/src/"
 INSERT_BATCH = 100
+UPDATE_BATCH = 500
 
 logger = logging.getLogger('waitress')
 logger.setLevel(logging.INFO)
@@ -22,7 +25,6 @@ def do_bulk_insert(table_name, data, header):
     query = f'INSERT INTO {table_name} ({",".join(header).lower()}) VALUES ({",".join(placeholder)})'
     db.get_db().executemany(query, data)
     db.get_db().commit()
-
 
 class CovidImporter:
 
@@ -109,12 +111,7 @@ class CovidImporter:
 
             # handle date dd/mm/yy
             if last_update_index is not False:
-                re_result = re.search(
-                    '(\d{1,2})/(\d{1,2})/(\d{2})', row[last_update_index])
-                if re_result:
-                    month, day, year = re_result.groups()
-                    # attention: this will only work for 80 years! ;)
-                    row[last_update_index] = f"20{year}-{int(month):02}-{int(day):02}"
+                row[last_update_index] = map_date(row[last_update_index])
 
             row.append(self._get_country_code_by_iso3(row[index_iso3]))
 
@@ -186,14 +183,7 @@ class CovidImporter:
             # Assumption: List is ordered by countries and dates, so each time the country
             # changes we have got the latest record of a country in the record before.
             if last_row and last_country != current_country:
-                # handle date dd/mm/yy
-                if last_update_index is not False:
-                    re_result = re.search(
-                        '(\d{1,2})/(\d{1,2})/(\d{2})', row[last_update_index])
-                    if re_result:
-                        month, day, year = re_result.groups()
-                        # attention: this will only work for 80 years! ;)
-                        last_row[last_update_index] = f"20{year}-{int(month):02}-{int(day):02}"
+                last_row[last_update_index] = map_date(row[last_update_index])
                 insert_data.append(tuple(last_row))
                 last_deaths = 0
 
@@ -210,6 +200,7 @@ class CovidImporter:
 
             result.append(row)
 
+        last_row[last_update_index] = map_date(last_row[last_update_index])
         insert_data.append(last_row)
         do_bulk_insert(temp_table_name, insert_data, header)
 
@@ -217,6 +208,117 @@ class CovidImporter:
         db.get_db().execute(query)
         query = f"ALTER TABLE {temp_table_name} RENAME TO {table_name}"
         db.get_db().execute(query)
+
+        return result
+
+    def _read_and_import_master_timeseries(self, dataset_name, data):
+        """Imports timeseries data from master branch. either confirmed, deaths or
+        recovered and updated the cases_time table.
+        """
+
+        def do_bulk_update(data):
+            query = f"""
+            UPDATE cases_time
+              SET {dataset_name} = ?,
+              delta_{dataset_name} = ?
+            WHERE country_region = ?
+              AND last_update =  ?
+            """
+            db.get_db().executemany(query, data)
+            db.get_db().commit()
+
+        def update_cases_total(data):
+            query = f"UPDATE cases_total SET delta_{dataset_name} = ? where country_region = ?"
+            db.get_db().executemany(query, data)
+            db.get_db().commit()
+
+        cr = csv.reader(data, delimiter=',', quotechar='"')
+        row_count = 0
+        result = []
+        insert_data = []
+        cases_total_data = []
+        header = None
+        time_table_name = "cases_time"
+        additional_headers = []
+
+        countries_with_province = {}
+
+        last_country = None
+        for row in cr:
+            row_count += 1
+            if row_count == 1:
+                # CSV Header
+                header = row
+                header = header + additional_headers
+                index_country = header.index("Country/Region")
+                index_province = header.index("Province/State")
+                continue
+
+            if len(row) != len(header)-len(additional_headers):
+                continue
+
+            current_country = row[index_country]
+            current_province = row[index_province]
+
+            last_value = 0
+            last_country = None
+            last_province = None
+            # for each country iterate through all datesl
+            for index, column in enumerate(header): 
+                date = map_date(column)
+
+                # not a date column, continue
+                if not date:
+                    continue
+
+                current_value = int(row[index])
+                # only use positive deltas.
+                delta = max(current_value - last_value, 0) 
+
+                last_value = current_value
+                # if no province is set, we know we can store the data for the country.
+                if current_province == "":
+                    # check if in province list and remove it otherwise
+                    if current_country in countries_with_province:
+                        del countries_with_province[current_country]
+
+                    insert_data.append((current_value, delta, current_country, date))
+                else:
+                    # sum up delta for all provinces
+                    countries_with_province[current_country] = countries_with_province.get(current_country, {})
+                    countries_with_province[current_country][date] = (
+                        countries_with_province[current_country].get(date, {})
+                    )
+                    countries_with_province[current_country][date]["delta"] = (
+                        countries_with_province[current_country][date].get("delta", 0) + delta
+                    )
+                    countries_with_province[current_country][date]["value"] = (
+                        countries_with_province[current_country][date].get("value", 0) + current_value
+                    )
+
+            # For latest dataset update cases_total with delta
+            if current_province == "":
+                cases_total_data.append((delta, current_country))
+
+            if insert_data and len(insert_data) % UPDATE_BATCH == 0:
+                do_bulk_update(insert_data)
+                update_cases_total(cases_total_data)
+                cases_total_data = []
+                insert_data = []
+
+        # iterate through all non processed countries with provinces
+        for country in countries_with_province:
+            for date in countries_with_province.get(country):
+                delta = countries_with_province.get(country).get(date, {}).get("delta")
+                value = countries_with_province.get(country).get(date, {}).get("value")
+                insert_data.append((value, delta, country, date))
+
+            # update cases_total as well with latest delta
+            cases_total_data.append((delta, country))
+
+        if insert_data:
+            do_bulk_update(insert_data)
+            update_cases_total((cases_total_data))
 
         return result
 
@@ -247,6 +349,9 @@ class CovidImporter:
         self._read_and_import_cases_total(data)
         self._download_and_import_covid_csv("cases_country")
 
+        data = self._download_csv(COVID_MASTER_BASE_URL + "time_series_covid19_recovered_global.csv")
+        self._read_and_import_master_timeseries("recovered", data)
+
         current_app.logger.info("Import finished in %s seconds",
                                 time.monotonic() - start_time)
 
@@ -254,7 +359,6 @@ class CovidImporter:
         """ called by ap backgroundscheduler
         """
         with app.app_context():
-            current_app.logger.info("asdf")
             db.init_app(app)
             self.start()
 
