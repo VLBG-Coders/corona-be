@@ -307,7 +307,13 @@ def create_app(test_config=None):
             where = f"WHERE LOWER(country_code) = '{country_code_filter.lower()}'"
 
         query = f"""
-        SELECT SUM(confirmed) as confirmed, SUM(deaths) as deaths, SUM(recovered) as recovered, last_update
+        SELECT
+          SUM(confirmed) as confirmed,
+          SUM(deaths) as deaths,
+          SUM(recovered) as recovered,
+          last_update,
+          SUM(delta_confirmed) as delta_confirmed,
+          SUM(delta_recovered) as delta_recovered
         FROM cases_time
         { where }
         GROUP BY last_update
@@ -320,14 +326,23 @@ def create_app(test_config=None):
         result = []
         count = 0
         for row in cursor.fetchall():
-            confirmed, deaths, recovered, last_update = row
+            (
+                confirmed,
+                deaths,
+                recovered,
+                last_update,
+                delta_confirmed,
+                delta_recovered,
+            ) = row
             count += 1
 
             result.append({
                 "confirmed": confirmed,
                 "deaths": deaths,
                 "recovered": recovered,
-                "date": last_update
+                "date": last_update,
+                "delta_confirmed": delta_confirmed,
+                "delta_recovered": delta_recovered,
             })
 
         return jsonify(result)
