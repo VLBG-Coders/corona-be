@@ -324,7 +324,6 @@ def create_app(test_config=None):
         cursor.execute(query)
 
         result = []
-        count = 0
         for row in cursor.fetchall():
             (
                 confirmed,
@@ -334,7 +333,6 @@ def create_app(test_config=None):
                 delta_confirmed,
                 delta_recovered,
             ) = row
-            count += 1
 
             result.append({
                 "confirmed": confirmed,
