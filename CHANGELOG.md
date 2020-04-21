@@ -2,6 +2,7 @@
 
 #### unreleased
 
+- Fixed bug in recovered of daily cases
 - Added delta_confirmed and delta_recovered to cases-daily endpoint
 - Added importer of recovered and delta recovered
 - Added filter code to endpoints to filter for country_code (iso2)

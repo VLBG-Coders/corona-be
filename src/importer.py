@@ -7,6 +7,8 @@ import logging
 from . import db
 from .utils import map_date
 from flask import current_app
+from pydash import get, set_
+from typing import Dict
 
 COVID_MASTER_BASE_URL = "https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/"
 COUNTRY_LUT_URL = "https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/UID_ISO_FIPS_LookUp_Table.csv"
@@ -81,6 +83,19 @@ class CovidImporter:
         insert_data = []
         header = None
         additional_headers = ["country_code"]
+        provinces = {}
+        # Indices used for sum up
+        sum_number_indices = [
+            "Confirmed",
+            "Deaths",
+            "Recovered",
+            "Active",
+            "Delta_Confirmed",
+            "Delta_Recovered",
+            "Incident_Rate",
+            "People_Tested",
+            "People_Hospitalized",
+        ]
 
         temp_table_name = table_name + "_new"
 
@@ -95,14 +110,20 @@ class CovidImporter:
                 db.get_db().execute(query)
                 query = f"CREATE TABLE {temp_table_name} AS SELECT * FROM {table_name} WHERE 0"
                 db.get_db().execute(query)
-                last_update_index = "Last_Update" in header and header.index(
+                index_last_update = "Last_Update" in header and header.index(
                     "Last_Update") or False
 
                 index_country_region = header.index("Country_Region")
+                index_province = "Province_State" in header and  header.index(
+                    "Province_State") or False
                 try:
                     index_iso3 = header.index("ISO3")
                 except ValueError:
                     index_iso3 = header.index("iso3")
+
+                indices = {}
+                for index, name in enumerate(header):
+                    indices[name] = index
 
                 continue
 
@@ -110,10 +131,29 @@ class CovidImporter:
                 continue
 
             # handle date dd/mm/yy
-            if last_update_index is not False:
-                row[last_update_index] = map_date(row[last_update_index])
+            if index_last_update is not False:
+                row[index_last_update] = map_date(row[index_last_update])
 
             row.append(self._get_country_code_by_iso3(row[index_iso3]))
+
+            country = row[index_country_region]
+            # sum up results if province is set
+            # each entry consists of total count
+            if index_province and row[index_province] != "":
+                date = row[index_last_update]
+                _count = provinces.get(country, {}).get("count", 0)
+                if date not in provinces.get(country, {}).get("data", {}):
+                    set_(provinces, [country, "count"], _count + 1)
+                if _count <= 1:
+                    row[index_province] = ""
+                    set_(provinces, [country, "row"], row)
+
+                for key in sum_number_indices:
+                    current_value = row[indices[key]] or 0
+                    last_value = get(provinces, [country, "data", date, key], 0)
+                    set_(provinces, [country, "data", date, key], last_value + float(current_value))
+
+                continue
 
             insert_data.append(tuple(row))
             if count % INSERT_BATCH == 0:
@@ -122,8 +162,21 @@ class CovidImporter:
 
             result.append(row)
 
+        # use all provinces data to build an aggregated row for country.
+        for country in provinces:
+            for date in provinces[country]["data"]:
+                row = provinces[country].get("row").copy()
+                row[index_last_update] = date
+                for key in provinces[country]["data"][date]:
+                    value = provinces[country]["data"][date][key]
+                    if key in ["Incident_Rate"]:
+                        value = value / provinces[country]["count"]
+                    row[indices[key]] = value
+                insert_data.append(row)
+
         if insert_data:
             do_bulk_insert(temp_table_name, insert_data, header)
+
 
         query = f"DROP TABLE {table_name}"
         db.get_db().execute(query)
@@ -161,7 +214,7 @@ class CovidImporter:
                 db.get_db().execute(query)
                 query = f"CREATE TABLE {temp_table_name} AS SELECT * FROM {table_name} WHERE 0"
                 db.get_db().execute(query)
-                last_update_index = "Last_Update" in header and header.index(
+                index_last_update = "Last_Update" in header and header.index(
                     "Last_Update")
                 country_index = "Country_Region" in header and header.index(
                     "Country_Region")
@@ -183,7 +236,7 @@ class CovidImporter:
             # Assumption: List is ordered by countries and dates, so each time the country
             # changes we have got the latest record of a country in the record before.
             if last_row and last_country != current_country:
-                last_row[last_update_index] = map_date(row[last_update_index])
+                last_row[index_last_update] = map_date(row[index_last_update])
                 insert_data.append(tuple(last_row))
                 last_deaths = 0
 
@@ -200,7 +253,7 @@ class CovidImporter:
 
             result.append(row)
 
-        last_row[last_update_index] = map_date(last_row[last_update_index])
+        last_row[index_last_update] = map_date(last_row[index_last_update])
         insert_data.append(last_row)
         do_bulk_insert(temp_table_name, insert_data, header)
 
