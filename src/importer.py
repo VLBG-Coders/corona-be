@@ -83,19 +83,6 @@ class CovidImporter:
         insert_data = []
         header = None
         additional_headers = ["country_code"]
-        provinces = {}
-        # Indices used for sum up
-        sum_number_indices = [
-            "Confirmed",
-            "Deaths",
-            "Recovered",
-            "Active",
-            "Delta_Confirmed",
-            "Delta_Recovered",
-            "Incident_Rate",
-            "People_Tested",
-            "People_Hospitalized",
-        ]
 
         temp_table_name = table_name + "_new"
 
@@ -136,23 +123,7 @@ class CovidImporter:
 
             row.append(self._get_country_code_by_iso3(row[index_iso3]))
 
-            country = row[index_country_region]
-            # sum up results if province is set
-            # each entry consists of total count
             if index_province and row[index_province] != "":
-                date = row[index_last_update]
-                _count = provinces.get(country, {}).get("count", 0)
-                if date not in provinces.get(country, {}).get("data", {}):
-                    set_(provinces, [country, "count"], _count + 1)
-                if _count <= 1:
-                    row[index_province] = ""
-                    set_(provinces, [country, "row"], row)
-
-                for key in sum_number_indices:
-                    current_value = row[indices[key]] or 0
-                    last_value = get(provinces, [country, "data", date, key], 0)
-                    set_(provinces, [country, "data", date, key], last_value + float(current_value))
-
                 continue
 
             insert_data.append(tuple(row))
@@ -162,21 +133,8 @@ class CovidImporter:
 
             result.append(row)
 
-        # use all provinces data to build an aggregated row for country.
-        for country in provinces:
-            for date in provinces[country]["data"]:
-                row = provinces[country].get("row").copy()
-                row[index_last_update] = date
-                for key in provinces[country]["data"][date]:
-                    value = provinces[country]["data"][date][key]
-                    if key in ["Incident_Rate"]:
-                        value = value / provinces[country]["count"]
-                    row[indices[key]] = value
-                insert_data.append(row)
-
         if insert_data:
             do_bulk_insert(temp_table_name, insert_data, header)
-
 
         query = f"DROP TABLE {table_name}"
         db.get_db().execute(query)
